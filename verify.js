@@ -1,10 +1,10 @@
 // server/verify.js — orchestrates all sources for a single contact.
-import * as serpapi   from './sources/serpapi.js';
-import * as hunter    from './sources/hunter.js';
-import * as linkedin  from './sources/linkedin.js';
-import * as pdl       from './sources/pdl.js';
-import * as website   from './sources/website.js';
-import * as gravatar  from './sources/gravatar.js';
+import * as serpapi   from './serpapi.js';
+import * as hunter    from './hunter.js';
+import * as linkedin  from './linkedin.js';
+import * as pdl       from './pdl.js';
+import * as website   from './website.js';
+import * as gravatar  from './gravatar.js';
 import { aggregate } from './aggregator.js';
 import { getCached, setCached } from './cache.js';
 
