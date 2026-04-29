@@ -1,6 +1,6 @@
 // server/sources/serpapi.js — Google Search, Local/Maps, Images via SerpAPI.
 // Returns raw hits; the aggregator decides what to trust.
-import { timedFetch, extractEmails, extractPhones } from '../util.js';
+import { timedFetch, extractEmails, extractPhones } from './util.js';
 
 const KEY = process.env.SERPAPI_KEY;
 export const available = () => !!KEY;

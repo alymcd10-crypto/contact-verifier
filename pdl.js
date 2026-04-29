@@ -1,6 +1,6 @@
 // server/sources/pdl.js — People Data Labs Person Enrichment.
 // Highest-signal single source for bulk jobs. Charges per match; uses title_case on match.
-import { timedFetch } from '../util.js';
+import { timedFetch } from './util.js';
 
 const KEY = process.env.PDL_API_KEY;
 export const available = () => !!KEY;

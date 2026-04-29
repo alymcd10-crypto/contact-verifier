@@ -1,7 +1,7 @@
 // server/sources/website.js — server-side website fetch (no CORS restrictions).
 // Visits /, /contact, /about, /team — extracts phones/emails/photos.
 import * as cheerio from 'cheerio';
-import { timedFetch, extractEmails, extractPhones } from '../util.js';
+import { timedFetch, extractEmails, extractPhones } from './util.js';
 
 export const available = () => true;
 

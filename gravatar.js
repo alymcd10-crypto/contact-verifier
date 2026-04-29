@@ -1,6 +1,6 @@
 // server/sources/gravatar.js — free, email-based photo lookup.
 import crypto from 'node:crypto';
-import { timedFetch } from '../util.js';
+import { timedFetch } from './util.js';
 
 export const available = () => true;
 

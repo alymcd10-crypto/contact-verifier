@@ -1,5 +1,5 @@
 // server/sources/linkedin.js — Fresh LinkedIn Profile Data via RapidAPI.
-import { timedFetch } from '../util.js';
+import { timedFetch } from './util.js';
 
 const KEY = process.env.RAPIDAPI_KEY;
 export const available = () => !!KEY;
