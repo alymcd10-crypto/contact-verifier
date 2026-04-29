@@ -1,5 +1,5 @@
 // server/sources/hunter.js — find current work email by name + company domain.
-import { timedFetch } from '../util.js';
+import { timedFetch } from './util.js';
 
 const KEY = process.env.HUNTER_API_KEY;
 export const available = () => !!KEY;
