@@ -1,152 +1,120 @@
-# Contact Verifier
+# Hearth CRM
 
-A **real** contact verification pipeline for realtors and lawyers. Takes a CSV of stale contacts (name, old company, old phone/email) and returns current verified data — company, title, phone, email, address, photo, LinkedIn URL, social profiles — pulled from multiple live sources.
+Real estate CRM for the McDonnell Team. Replaces Agent Office + Top Producer.
 
-Built for migrating **8,000+ contacts from Agent Office → Top Producer** without uploading dead/outdated records. Designed as a reusable API so it can plug into a custom CRM later.
+**The thesis:** Top Producer routes outbound SMS through an email-approval
+step that lands in spam filters — that kills speed-to-lead. Hearth sends SMS
+directly through Twilio with TCPA consent gates built in, and **Harper**, the
+AI lead qualifier, takes the first touch within seconds (research: responding
+within 1 minute converts 391% better than within 2).
 
----
+## Current state — v0.5
 
-## Architecture
+- **Harper (LIVE):** AI lead qualifier on SMS. New web-form lead arrives →
+  Harper sends the first message immediately → 2-5 turn qualification →
+  hands off to Leslie with a structured summary task. Uses `claude-haiku-4-5`
+  (~$0.001 per reply). Falls back to a canned greeting + instant handoff if
+  no `ANTHROPIC_API_KEY` is set.
+- **Backend:** FastAPI + SQLAlchemy + SQLite/Postgres. **76 tests passing**
+  (12 new for Harper).
+- **Frontend:** React 18 + Vite, Hearth design language.
+- **Data model:** Lead vs Contact separation with identity-based dedup.
+- **Action plans:** 39 plans (945 steps) parsed from the team's A2K exports.
+- **TCPA:** SMS consent gated on every send. Web-form lead sources
+  (Dakno, Zillow, Realtor.com, Facebook, Instagram, Remax, Google Business)
+  grant implied consent. CSV imports and manual entry do not.
+- **Scheduler:** APScheduler fires action-plan steps every 5 minutes.
+- **Twilio webhook:** Public endpoint at `/api/webhooks/twilio/sms` with
+  HMAC-SHA1 signature validation (auth-token-based, not JWT).
 
-```
-contact-verifier.html        ← browser UI (upload CSV, review results)
-          ↓ fetch
-server/                      ← Node.js + Express API
-  ├── sources/               ← pluggable data-source modules
-  │    ├── serpapi.js        (Google Search, Maps, Images)
-  │    ├── hunter.js         (email finder)
-  │    ├── linkedin.js       (RapidAPI Fresh LinkedIn Profile Data)
-  │    ├── pdl.js            (People Data Labs — bulk enrichment)
-  │    ├── website.js        (CORS-free company website scrape)
-  │    └── gravatar.js       (email-based photo lookup)
-  ├── aggregator.js          ← merges source results, scores confidence
-  ├── cache.js               ← SQLite cache (never re-query unless stale)
-  ├── jobs.js                ← in-memory batch job queue with rate limiting
-  ├── routes.js              ← POST /api/verify, /api/verify/batch, GET /api/verify/:jobId
-  └── index.js               ← Express app entry
-```
+## Not yet built (on the roadmap)
 
----
+The other seven AI agents — Cove (scheduler), Linden (voice), Atlas (CMA),
+Fern (nurture drip), Roan (TC), Juniper (listing copy), Bay (social) — are
+placeholders on the **AI Agents** page. We'll build them one at a time,
+prioritized by which pain point is next.
 
-## Quick start
+Also not yet built: MLS feed (MRED credentials pending), transaction module,
+calendar integration, email via Microsoft 365 Graph API.
+
+## Running locally
 
 ```bash
-cd server
-cp .env.example .env
-# edit .env and add your API keys (see below)
+cd backend
+python3 -m pip install -r requirements.txt
+python3 -m uvicorn app.main:app --reload
+
+cd frontend
 npm install
-npm start
-# → API listening on http://localhost:3001
+npm run dev
 ```
 
-Then open `contact-verifier.html` in a browser. It will auto-detect the local server.
+## Configuration
 
----
+Environment variables (all optional in demo mode):
 
-## API keys you need
+- `DATABASE_URL` — Postgres URL; SQLite if unset
+- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` —
+  SMS sending + webhook signature validation. If unset, messages stored
+  with status `demo`.
+- `ANTHROPIC_API_KEY` — Claude API key for Harper. If unset, Harper runs in
+  fallback mode (canned greeting + instant handoff to Leslie).
+- `HARPER_ENABLED` — `1` (default) to run Harper; `0` to disable
+- `HARPER_MAX_TURNS` — hard stop on conversation length (default 8)
+- `HARPER_HANDOFF_AGENT_ID` — agent ID who receives handoff tasks
+  (default: first admin, i.e. Leslie)
+- `HARPER_MODEL` — override model (default `claude-haiku-4-5`)
+- `CORS_ORIGINS` — comma-separated; defaults to `*`
+- `LOG_LEVEL` — defaults to INFO
 
-Order of priority — get them in this order as budget allows:
+## Twilio webhook setup
 
-| Service | What it gives you | Free tier | Paid tier | Signup |
-|---|---|---|---|---|
-| **SerpAPI** | Google Search, Maps, Images | 100 searches/mo | $50/mo → 5k searches | [serpapi.com](https://serpapi.com) |
-| **Hunter.io** | Find work email by name + domain | 25 lookups/mo | $49/mo → 500 | [hunter.io](https://hunter.io) |
-| **RapidAPI** | LinkedIn profile data (photo, title, company) | Varies | ~$10/mo | [rapidapi.com](https://rapidapi.com/freshdata-freshdata-default/api/fresh-linkedin-profile-data) |
-| **People Data Labs** | Bulk person enrichment (best single source) | 100 free credits | $0.10-0.20/match | [peopledatalabs.com](https://peopledatalabs.com) |
-
-**For 8,000 contacts:** PDL at $0.10/match ≈ **$800 one-time** to enrich everything, then ~$50 in SerpAPI for re-checks and ~$49 for Hunter to clean emails. **~$900 total** to clean 40 years of data.
-
----
-
-## Endpoints
-
-### `POST /api/verify`
-Verify a single contact synchronously (blocks up to ~15s).
-
-```json
-// request
-{ "name": "Jane Doe", "type": "realtor", "company": "Old Firm", "email": "...", "phone": "...", "address": "..." }
-
-// response
-{
-  "overall": "verified" | "partial" | "changed" | "not-found",
-  "confidence": 0-100,
-  "verified": { "email": "...", "phone": "...", "company": "...", "title": "...", "linkedin": "...", "photo": "...", "social": {...} },
-  "original": { ...echoed input },
-  "changes": [{ "field": "company", "from": "Old Firm", "to": "New Firm", "source": "linkedin", "confidence": 92 }],
-  "sources": ["serpapi", "linkedin", "website"],
-  "autoUpdate": ["company", "title"],
-  "manualReview": ["phone"]
-}
+In the Twilio console, set the SMS webhook URL for your number to:
 ```
-
-### `POST /api/verify/batch`
-Queue a batch. Returns a `jobId` immediately.
-
-```json
-{ "contacts": [{...}, {...}, ...], "options": { "concurrency": 3 } }
-→ { "jobId": "abc123", "total": 8000, "status": "queued" }
+https://your-domain.com/api/webhooks/twilio/sms
 ```
+Method: `POST`. Twilio's `X-Twilio-Signature` header is validated against
+`TWILIO_AUTH_TOKEN` automatically.
 
-### `GET /api/verify/:jobId`
-Poll batch progress + partial results.
+## Data model (short version)
 
-```json
-{ "status": "running", "progress": 142, "total": 8000, "results": [ ...finished so far ] }
-```
+- **Agent** — team members (Leslie, Joan, Danielle, Liz, Mark)
+- **Contact** — canonical person/household. Has `score` (0-100 fit),
+  `ai_flag` (last AI action summary), `budget`, lead status, SMS/email
+  consent, assigned agent
+- **ContactIdentity** — emails, phones; normalized for dedup
+- **Lead** — inbound raw capture with source, dedup confidence
+- **HarperConversation** — tracks Harper state (qualifying / handed_off /
+  opted_out / booked / expired / error), extracted facts (timeline,
+  budget, location, financing, motivation), turn count, handoff reason
+- **Activity** — notes, calls, SMS, emails, plan-starts, consent changes,
+  AI interactions
+- **Task** — scheduled follow-ups, from action plans or manual entry.
+  Harper creates these on handoff
+- **Message** — SMS record with direction, status, auto-fire flag
+- **ActionPlan** / **ActionPlanStep** / **ActionPlanAssignment**
+- **AuditLog** — PII access, blocked messages, consent changes
 
-### `GET /api/health`
-Sanity check. Returns which source keys are configured.
+## Frontend routes
 
----
+- `/` — Today (morning brief, Harper handoff count, speed-to-lead)
+- `/pipeline` — 6-stage kanban
+- `/contacts` — list with search/filters
+- `/contacts/:id` — detail with Harper panel in sidebar
+- `/inbox` — review queue for ambiguous lead matches
+- `/messages` — SMS conversations
+- `/tasks` — grouped by overdue / today / this week / later
+- `/plans` — action plan library + step preview
+- `/agents` — AI workforce; Harper shown live with recent conversations
+- `/listings`, `/transactions` — placeholders (not yet built)
+- `/import` — CSV upload
+- `/settings` — team, integrations, about
 
-## Auto-update vs manual review rubric
+## Versions
 
-The aggregator scores each **field** (not the whole contact) on confidence 0-100:
-
-- **95+** → auto-update (two independent sources agree, or one canonical source like LinkedIn's current company)
-- **70-94** → flagged for manual review (one source, plausible but unconfirmed)
-- **< 70** → dropped (low-quality signal, not surfaced)
-
-You'll see every change with its source so you can audit.
-
----
-
-## Deployment (for CRM integration later)
-
-Recommended: **Railway** (easiest) or **Fly.io** (cheapest for always-on).
-
-```bash
-# Railway
-railway login
-railway init
-railway up
-# set env vars in dashboard
-```
-
-The API is stateless except for the SQLite cache, which lives in `server/data/cache.db`. For production, swap SQLite → Postgres (trivial; the `cache.js` interface is ~20 lines).
-
----
-
-## CRM integration path
-
-Once the API is deployed, your custom React/Next.js CRM calls it exactly like the HTML frontend does:
-
-```js
-const verified = await fetch(`${VERIFIER_API}/api/verify`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-  body: JSON.stringify(contact),
-}).then(r => r.json());
-```
-
-For lead verification (your Remine use case) just POST the new lead to `/api/verify` — same endpoint, same response shape.
-
----
-
-## What this does NOT do (yet)
-
-- Auth — right now any caller can hit the API. Add Clerk or Supabase Auth before exposing publicly.
-- Webhooks — no push notifications when a batch finishes; you poll.
-- Instagram/Facebook deep scraping — only surfaces profile URLs found via Google, doesn't log in.
-- Professional license live-checks (state bar, NAR) — stubbed, not implemented. Call them out as a Phase 2 source if you want it.
+- v0.1: backend skeleton, dedup, action plans
+- v0.2: tests, scheduler, TCPA enforcement, speed-to-lead metrics
+- v0.3: editorial frontend (replaced)
+- v0.4: Hearth rebrand
+- **v0.5: Harper live** — AI lead qualifier on SMS, public Twilio webhook,
+  Harper API + panel, AgentsPage promoted Harper to live
