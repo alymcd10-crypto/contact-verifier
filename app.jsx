@@ -311,8 +311,10 @@ function ResultsTable({ contacts, results, onSelect, filter }) {
 }
 
 function DetailPanel({ contact, result, onClose, onReverify }) {
+  const [showRaw, setShowRaw] = useState(false);
   const v = result?.verified || {};
   const audit = result?.fieldAudit || {};
+  const raw = result?.rawBySource || {};
 
   const fields = [
     { key:'company', label:'Company' },
@@ -401,6 +403,32 @@ function DetailPanel({ contact, result, onClose, onReverify }) {
               </div>
             )}
           </>
+        )}
+
+        {result && Object.keys(raw).length > 0 && (
+          <div style={{marginTop:20,paddingTop:16,borderTop:'1px solid var(--rule)'}}>
+            <button className="btn btn-ghost" onClick={()=>setShowRaw(s => !s)} style={{fontSize:'.75rem'}}>
+              {showRaw ? '▾ Hide' : '▸ Show'} raw source data ({Object.keys(raw).length} sources)
+            </button>
+            {showRaw && (
+              <div style={{marginTop:12,display:'flex',flexDirection:'column',gap:10}}>
+                {Object.entries(raw).map(([src, data]) => {
+                  const empty = Object.keys(data).length === 0 || data._skipped;
+                  return (
+                    <div key={src} style={{background:'var(--cream)',border:'1px solid var(--rule)',borderRadius:6,padding:'10px 12px',fontSize:'.78rem'}}>
+                      <div style={{fontWeight:700,color:'var(--navy)',marginBottom:6,display:'flex',justifyContent:'space-between'}}>
+                        <span>{src}</span>
+                        {data._skipped && <span style={{color:'var(--muted)',fontWeight:400,fontSize:'.72rem'}}>skipped: {data._skipped}</span>}
+                      </div>
+                      {empty
+                        ? <div style={{color:'var(--muted)',fontStyle:'italic'}}>No data returned</div>
+                        : <pre style={{whiteSpace:'pre-wrap',wordBreak:'break-word',fontSize:'.72rem',color:'var(--ink)',fontFamily:'ui-monospace,monospace',margin:0}}>{JSON.stringify(data, null, 2)}</pre>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
 
         <div style={{display:'flex',gap:8,marginTop:24}}>
